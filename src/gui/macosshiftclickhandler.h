@@ -1,6 +1,6 @@
 /*
  * Bittorrent Client using Qt and libtorrent.
- * Copyright (C) 2011  Vladimir Golovnev <glassez@yandex.ru>
+ * Copyright (C) 2025  Luke Memet (lukemmtt)
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,49 +28,23 @@
 
 #pragma once
 
-#include <QDBusUnixFileDescriptor>
 #include <QObject>
+#include <QPersistentModelIndex>
 
-class QDBusInterface;
-class QDBusPendingCallWatcher;
+class QTreeView;
 
-class PowerManagementInhibitor final : public QObject
+// Workaround for QTBUG-115838: Shift-click range selection not working properly on macOS
+class MacOSShiftClickHandler final : public QObject
 {
     Q_OBJECT
-    Q_DISABLE_COPY_MOVE(PowerManagementInhibitor)
+    Q_DISABLE_COPY_MOVE(MacOSShiftClickHandler)
 
 public:
-    PowerManagementInhibitor(QObject *parent = nullptr);
-    ~PowerManagementInhibitor() override = default;
-
-    void requestIdle();
-    void requestBusy();
-
-private slots:
-    void onAsyncReply(QDBusPendingCallWatcher *call);
+    explicit MacOSShiftClickHandler(QTreeView *treeView);
 
 private:
-    enum State
-    {
-        Error,
-        Idle,
-        RequestBusy,
-        Busy,
-        RequestIdle
-    };
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
-    enum class ManagerType
-    {
-        Freedesktop,  // https://www.freedesktop.org/wiki/Specifications/power-management-spec/
-        Gnome,  // https://github.com/GNOME/gnome-settings-daemon/blob/master/gnome-settings-daemon/org.gnome.SessionManager.xml
-        Systemd // https://www.freedesktop.org/software/systemd/man/org.freedesktop.login1.html
-    };
-
-    QDBusInterface *m_busInterface = nullptr;
-    ManagerType m_manager = ManagerType::Gnome;
-
-    enum State m_state = Error;
-    enum State m_intendedState = Idle;
-    uint m_cookie = 0;
-    QDBusUnixFileDescriptor m_fd;
+    QTreeView *m_treeView = nullptr;
+    QPersistentModelIndex m_lastClickedIndex;
 };

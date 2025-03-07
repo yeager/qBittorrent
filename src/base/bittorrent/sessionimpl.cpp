@@ -78,6 +78,7 @@
 #include "base/algorithm.h"
 #include "base/global.h"
 #include "base/logger.h"
+#include "base/net/downloadmanager.h"
 #include "base/net/proxyconfigurationmanager.h"
 #include "base/preferences.h"
 #include "base/profile.h"
@@ -119,7 +120,7 @@ namespace
 {
     const char PEER_ID[] = "qB";
     const auto USER_AGENT = QStringLiteral("qBittorrent/" QBT_VERSION_2);
-    const QString DEFAULT_DHT_BOOTSTRAP_NODES = u"dht.libtorrent.org:25401, dht.transmissionbt.com:6881, router.silotis.us:6881"_s;
+    const QString DEFAULT_DHT_BOOTSTRAP_NODES = u"dht.libtorrent.org:25401, dht.transmissionbt.com:6881, router.bittorrent.com:6881"_s;
 
     void torrentQueuePositionUp(const lt::torrent_handle &handle)
     {
@@ -444,6 +445,7 @@ SessionImpl::SessionImpl(QObject *parent)
     , m_ignoreLimitsOnLAN(BITTORRENT_SESSION_KEY(u"IgnoreLimitsOnLAN"_s), false)
     , m_includeOverheadInLimits(BITTORRENT_SESSION_KEY(u"IncludeOverheadInLimits"_s), false)
     , m_announceIP(BITTORRENT_SESSION_KEY(u"AnnounceIP"_s))
+    , m_announcePort(BITTORRENT_SESSION_KEY(u"AnnouncePort"_s), 0)
     , m_maxConcurrentHTTPAnnounces(BITTORRENT_SESSION_KEY(u"MaxConcurrentHTTPAnnounces"_s), 50)
     , m_isReannounceWhenAddressChangedEnabled(BITTORRENT_SESSION_KEY(u"ReannounceWhenAddressChanged"_s), false)
     , m_stopTrackerTimeout(BITTORRENT_SESSION_KEY(u"StopTrackerTimeout"_s), 2)
@@ -463,6 +465,8 @@ SessionImpl::SessionImpl(QObject *parent)
     , m_blockPeersOnPrivilegedPorts(BITTORRENT_SESSION_KEY(u"BlockPeersOnPrivilegedPorts"_s), false)
     , m_isAddTrackersEnabled(BITTORRENT_SESSION_KEY(u"AddTrackersEnabled"_s), false)
     , m_additionalTrackers(BITTORRENT_SESSION_KEY(u"AdditionalTrackers"_s))
+    , m_isAddTrackersFromURLEnabled(BITTORRENT_SESSION_KEY(u"AddTrackersFromURLEnabled"_s), false)
+    , m_additionalTrackersURL(BITTORRENT_SESSION_KEY(u"AdditionalTrackersURL"_s))
     , m_globalMaxRatio(BITTORRENT_SESSION_KEY(u"GlobalMaxRatio"_s), -1, [](qreal r) { return r < 0 ? -1. : r;})
     , m_globalMaxSeedingMinutes(BITTORRENT_SESSION_KEY(u"GlobalMaxSeedingMinutes"_s), -1, lowerLimited(-1))
     , m_globalMaxInactiveSeedingMinutes(BITTORRENT_SESSION_KEY(u"GlobalMaxInactiveSeedingMinutes"_s), -1, lowerLimited(-1))
@@ -541,6 +545,8 @@ SessionImpl::SessionImpl(QObject *parent)
     m_asyncWorker->setMaxThreadCount(1);
     m_asyncWorker->setObjectName("SessionImpl m_asyncWorker");
 
+    m_alerts.reserve(1024);
+
     if (port() < 0)
         m_port = Utils::Random::rand(1024, 65535);
     if (sslPort() < 0)
@@ -617,6 +623,15 @@ SessionImpl::SessionImpl(QObject *parent)
     enableTracker(isTrackerEnabled());
 
     prepareStartup();
+
+    m_updateTrackersFromURLTimer = new QTimer(this);
+    m_updateTrackersFromURLTimer->setInterval(24h);
+    connect(m_updateTrackersFromURLTimer, &QTimer::timeout, this, &SessionImpl::updateTrackersFromURL);
+    if (isAddTrackersFromURLEnabled())
+    {
+        updateTrackersFromURL();
+        m_updateTrackersFromURLTimer->start();
+    }
 }
 
 SessionImpl::~SessionImpl()
@@ -1990,6 +2005,10 @@ lt::settings_pack SessionImpl::loadLTSettings() const
     settingsPack.set_bool(lt::settings_pack::rate_limit_ip_overhead, includeOverheadInLimits());
     // IP address to announce to trackers
     settingsPack.set_str(lt::settings_pack::announce_ip, announceIP().toStdString());
+#if LIBTORRENT_VERSION_NUM >= 20011
+    // Port to announce to trackers
+    settingsPack.set_int(lt::settings_pack::announce_port, announcePort());
+#endif
     // Max concurrent HTTP announces
     settingsPack.set_int(lt::settings_pack::max_concurrent_http_announces, maxConcurrentHTTPAnnounces());
     // Stop tracker timeout
@@ -2268,6 +2287,11 @@ void SessionImpl::populateAdditionalTrackers()
     m_additionalTrackerEntries = parseTrackerEntries(additionalTrackers());
 }
 
+void SessionImpl::populateAdditionalTrackersFromURL()
+{
+    m_additionalTrackerEntriesFromURL = parseTrackerEntries(additionalTrackersFromURL());
+}
+
 void SessionImpl::processTorrentShareLimits(TorrentImpl *torrent)
 {
     if (!torrent->isFinished() || torrent->isForced())
@@ -2437,12 +2461,12 @@ bool SessionImpl::removeTorrent(const TorrentID &id, const TorrentRemoveOption d
         m_removingTorrents[torrentID] = {torrentName, torrent->actualStorageLocation(), {}, deleteOption};
 
         const lt::torrent_handle nativeHandle {torrent->nativeHandle()};
-        const auto iter = std::find_if(m_moveStorageQueue.begin(), m_moveStorageQueue.end()
+        const auto iter = std::find_if(m_moveStorageQueue.cbegin(), m_moveStorageQueue.cend()
             , [&nativeHandle](const MoveStorageJob &job)
         {
             return job.torrentHandle == nativeHandle;
         });
-        if (iter != m_moveStorageQueue.end())
+        if (iter != m_moveStorageQueue.cend())
         {
             // We shouldn't actually remove torrent until existing "move storage jobs" are done
             torrentQueuePositionBottom(nativeHandle);
@@ -2462,12 +2486,12 @@ bool SessionImpl::removeTorrent(const TorrentID &id, const TorrentRemoveOption d
         {
             // Delete "move storage job" for the deleted torrent
             // (note: we shouldn't delete active job)
-            const auto iter = std::find_if((m_moveStorageQueue.begin() + 1), m_moveStorageQueue.end()
+            const auto iter = std::find_if((m_moveStorageQueue.cbegin() + 1), m_moveStorageQueue.cend()
                 , [torrent](const MoveStorageJob &job)
             {
                 return job.torrentHandle == torrent->nativeHandle();
             });
-            if (iter != m_moveStorageQueue.end())
+            if (iter != m_moveStorageQueue.cend())
                 m_moveStorageQueue.erase(iter);
         }
 
@@ -2484,8 +2508,8 @@ bool SessionImpl::removeTorrent(const TorrentID &id, const TorrentRemoveOption d
 
 bool SessionImpl::cancelDownloadMetadata(const TorrentID &id)
 {
-    const auto downloadedMetadataIter = m_downloadedMetadata.find(id);
-    if (downloadedMetadataIter == m_downloadedMetadata.end())
+    const auto downloadedMetadataIter = m_downloadedMetadata.constFind(id);
+    if (downloadedMetadataIter == m_downloadedMetadata.cend())
         return false;
 
     const lt::torrent_handle nativeHandle = downloadedMetadataIter.value();
@@ -2887,6 +2911,21 @@ bool SessionImpl::addTorrent_impl(const TorrentDescriptor &source, const AddTorr
         }
     }
 
+    if (isAddTrackersFromURLEnabled() && !(hasMetadata && p.ti->priv()))
+    {
+        const auto maxTierIter = std::max_element(p.tracker_tiers.cbegin(), p.tracker_tiers.cend());
+        const int baseTier = (maxTierIter != p.tracker_tiers.cend()) ? (*maxTierIter + 1) : 0;
+
+        p.trackers.reserve(p.trackers.size() + static_cast<std::size_t>(m_additionalTrackerEntriesFromURL.size()));
+        p.tracker_tiers.reserve(p.trackers.size() + static_cast<std::size_t>(m_additionalTrackerEntriesFromURL.size()));
+        p.tracker_tiers.resize(p.trackers.size(), 0);
+        for (const TrackerEntry &trackerEntry : asConst(m_additionalTrackerEntriesFromURL))
+        {
+            p.trackers.emplace_back(trackerEntry.url.toStdString());
+            p.tracker_tiers.emplace_back(Utils::Number::clampingAdd(trackerEntry.tier, baseTier));
+        }
+    }
+
     p.upload_limit = addTorrentParams.uploadLimit;
     p.download_limit = addTorrentParams.downloadLimit;
 
@@ -3155,10 +3194,10 @@ void SessionImpl::saveResumeData()
             break;
         }
 
-        const std::vector<lt::alert *> alerts = getPendingAlerts(waitTime);
+        fetchPendingAlerts(waitTime);
 
         bool hasWantedAlert = false;
-        for (const lt::alert *alert : alerts)
+        for (const lt::alert *alert : m_alerts)
         {
             if (const int alertType = alert->type();
                 (alertType == lt::save_resume_data_alert::alert_type) || (alertType == lt::save_resume_data_failed_alert::alert_type)
@@ -3877,6 +3916,82 @@ void SessionImpl::setAdditionalTrackers(const QString &trackers)
 
     m_additionalTrackers = trackers;
     populateAdditionalTrackers();
+}
+
+bool SessionImpl::isAddTrackersFromURLEnabled() const
+{
+    return m_isAddTrackersFromURLEnabled;
+}
+
+void SessionImpl::setAddTrackersFromURLEnabled(const bool enabled)
+{
+    if (enabled != isAddTrackersFromURLEnabled())
+    {
+        m_isAddTrackersFromURLEnabled = enabled;
+        if (enabled)
+        {
+            updateTrackersFromURL();
+            m_updateTrackersFromURLTimer->start();
+        }
+        else
+        {
+            m_updateTrackersFromURLTimer->stop();
+            setAdditionalTrackersFromURL({});
+        }
+    }
+}
+
+QString SessionImpl::additionalTrackersURL() const
+{
+    return m_additionalTrackersURL;
+}
+
+void SessionImpl::setAdditionalTrackersURL(const QString &url)
+{
+    if (url != additionalTrackersURL())
+    {
+        m_additionalTrackersURL = url.trimmed();
+        if (isAddTrackersFromURLEnabled())
+            updateTrackersFromURL();
+    }
+}
+
+QString SessionImpl::additionalTrackersFromURL() const
+{
+    return m_additionalTrackersFromURL;
+}
+
+void SessionImpl::setAdditionalTrackersFromURL(const QString &trackers)
+{
+    if (trackers != additionalTrackersFromURL())
+    {
+        m_additionalTrackersFromURL = trackers;
+        populateAdditionalTrackersFromURL();
+    }
+}
+
+void SessionImpl::updateTrackersFromURL()
+{
+    const QString url = additionalTrackersURL();
+    if (url.isEmpty())
+    {
+        setAdditionalTrackersFromURL({});
+    }
+    else
+    {
+        Net::DownloadManager::instance()->download(Net::DownloadRequest(url)
+                , Preferences::instance()->useProxyForGeneralPurposes(), this, [this](const Net::DownloadResult &result)
+        {
+            if (result.status == Net::DownloadStatus::Success)
+            {
+                setAdditionalTrackersFromURL(QString::fromUtf8(result.data));
+                LogMsg(tr("Tracker list updated"), Log::INFO);
+                return;
+            }
+
+            LogMsg(tr("Failed to update tracker list. Reason: \"%1\"").arg(result.errorString), Log::WARNING);
+        });
+    }
 }
 
 bool SessionImpl::isIPFilteringEnabled() const
@@ -4769,6 +4884,20 @@ void SessionImpl::setAnnounceIP(const QString &ip)
     }
 }
 
+int SessionImpl::announcePort() const
+{
+    return m_announcePort;
+}
+
+void SessionImpl::setAnnouncePort(const int port)
+{
+    if (port != m_announcePort)
+    {
+        m_announcePort = port;
+        configureDeferred();
+    }
+}
+
 int SessionImpl::maxConcurrentHTTPAnnounces() const
 {
     return m_maxConcurrentHTTPAnnounces;
@@ -5139,8 +5268,8 @@ void SessionImpl::handleTorrentFinished(TorrentImpl *const torrent)
 void SessionImpl::handleTorrentResumeDataReady(TorrentImpl *const torrent, const LoadTorrentParams &data)
 {
     m_resumeDataStorage->store(torrent->id(), data);
-    const auto iter = m_changedTorrentIDs.find(torrent->id());
-    if (iter != m_changedTorrentIDs.end())
+    const auto iter = m_changedTorrentIDs.constFind(torrent->id());
+    if (iter != m_changedTorrentIDs.cend())
     {
         m_resumeDataStorage->remove(iter.value());
         m_changedTorrentIDs.erase(iter);
@@ -5173,11 +5302,11 @@ bool SessionImpl::addMoveTorrentStorageJob(TorrentImpl *torrent, const Path &new
 
     const lt::torrent_handle torrentHandle = torrent->nativeHandle();
     const Path currentLocation = torrent->actualStorageLocation();
-    const bool torrentHasActiveJob = !m_moveStorageQueue.isEmpty() && (m_moveStorageQueue.first().torrentHandle == torrentHandle);
+    const bool torrentHasActiveJob = !m_moveStorageQueue.isEmpty() && (m_moveStorageQueue.constFirst().torrentHandle == torrentHandle);
 
     if (m_moveStorageQueue.size() > 1)
     {
-        auto iter = std::find_if((m_moveStorageQueue.begin() + 1), m_moveStorageQueue.end()
+        auto iter = std::find_if((m_moveStorageQueue.cbegin() + 1), m_moveStorageQueue.cend()
                 , [&torrentHandle](const MoveStorageJob &job)
         {
             return job.torrentHandle == torrentHandle;
@@ -5196,7 +5325,7 @@ bool SessionImpl::addMoveTorrentStorageJob(TorrentImpl *torrent, const Path &new
     {
         // if there is active job for this torrent prevent creating meaningless
         // job that will move torrent to the same location as current one
-        if (m_moveStorageQueue.first().path == newPath)
+        if (m_moveStorageQueue.constFirst().path == newPath)
         {
             LogMsg(tr("Failed to enqueue torrent move. Torrent: \"%1\". Source: \"%2\". Destination: \"%3\". Reason: torrent is currently moving to the destination")
                    .arg(torrent->name(), currentLocation.toString(), newPath.toString()));
@@ -5241,7 +5370,7 @@ void SessionImpl::handleMoveTorrentStorageJobFinished(const Path &newPath)
 {
     const MoveStorageJob finishedJob = m_moveStorageQueue.takeFirst();
     if (!m_moveStorageQueue.isEmpty())
-        moveTorrentStorage(m_moveStorageQueue.first());
+        moveTorrentStorage(m_moveStorageQueue.constFirst());
 
     const auto iter = std::find_if(m_moveStorageQueue.cbegin(), m_moveStorageQueue.cend()
             , [&finishedJob](const MoveStorageJob &job)
@@ -5495,14 +5624,13 @@ void SessionImpl::handleIPFilterError()
     emit IPFilterParsed(true, 0);
 }
 
-std::vector<lt::alert *> SessionImpl::getPendingAlerts(const lt::time_duration time) const
+void SessionImpl::fetchPendingAlerts(const lt::time_duration time)
 {
     if (time > lt::time_duration::zero())
         m_nativeSession->wait_for_alert(time);
 
-    std::vector<lt::alert *> alerts;
-    m_nativeSession->pop_alerts(&alerts);
-    return alerts;
+    m_alerts.clear();
+    m_nativeSession->pop_alerts(&m_alerts);
 }
 
 TorrentContentLayout SessionImpl::torrentContentLayout() const
@@ -5518,7 +5646,7 @@ void SessionImpl::setTorrentContentLayout(const TorrentContentLayout value)
 // Read alerts sent by libtorrent session
 void SessionImpl::readAlerts()
 {
-    const std::vector<lt::alert *> alerts = getPendingAlerts();
+    fetchPendingAlerts();
 
     Q_ASSERT(m_loadedTorrents.isEmpty());
     Q_ASSERT(m_receivedAddTorrentAlertsCount == 0);
@@ -5526,7 +5654,7 @@ void SessionImpl::readAlerts()
     if (!isRestored())
         m_loadedTorrents.reserve(MAX_PROCESSING_RESUMEDATA_COUNT);
 
-    for (const lt::alert *a : alerts)
+    for (const lt::alert *a : m_alerts)
         handleAlert(a);
 
     if (m_receivedAddTorrentAlertsCount > 0)
@@ -5568,14 +5696,14 @@ void SessionImpl::handleAddTorrentAlert(const lt::add_torrent_alert *alert)
 #else
         const InfoHash infoHash {(hasMetadata ? params.ti->info_hash() : params.info_hash)};
 #endif
-        if (const auto loadingTorrentsIter = m_loadingTorrents.find(TorrentID::fromInfoHash(infoHash))
-                ; loadingTorrentsIter != m_loadingTorrents.end())
+        if (const auto loadingTorrentsIter = m_loadingTorrents.constFind(TorrentID::fromInfoHash(infoHash))
+                ; loadingTorrentsIter != m_loadingTorrents.cend())
         {
             emit addTorrentFailed(infoHash, msg);
             m_loadingTorrents.erase(loadingTorrentsIter);
         }
-        else if (const auto downloadedMetadataIter = m_downloadedMetadata.find(TorrentID::fromInfoHash(infoHash))
-                 ; downloadedMetadataIter != m_downloadedMetadata.end())
+        else if (const auto downloadedMetadataIter = m_downloadedMetadata.constFind(TorrentID::fromInfoHash(infoHash))
+                 ; downloadedMetadataIter != m_downloadedMetadata.cend())
         {
             m_downloadedMetadata.erase(downloadedMetadataIter);
             if (infoHash.isHybrid())
@@ -5596,8 +5724,8 @@ void SessionImpl::handleAddTorrentAlert(const lt::add_torrent_alert *alert)
 #endif
     const auto torrentID = TorrentID::fromInfoHash(infoHash);
 
-    if (const auto loadingTorrentsIter = m_loadingTorrents.find(torrentID)
-            ; loadingTorrentsIter != m_loadingTorrents.end())
+    if (const auto loadingTorrentsIter = m_loadingTorrents.constFind(torrentID)
+            ; loadingTorrentsIter != m_loadingTorrents.cend())
     {
         const LoadTorrentParams params = loadingTorrentsIter.value();
         m_loadingTorrents.erase(loadingTorrentsIter);
@@ -5860,7 +5988,7 @@ void SessionImpl::handleMetadataReceivedAlert(const lt::metadata_received_alert 
     const TorrentID torrentID {alert->handle.info_hash()};
 
     bool found = false;
-    if (const auto iter = m_downloadedMetadata.find(torrentID); iter != m_downloadedMetadata.end())
+    if (const auto iter = m_downloadedMetadata.constFind(torrentID); iter != m_downloadedMetadata.cend())
     {
         found = true;
         m_downloadedMetadata.erase(iter);
@@ -5870,7 +5998,7 @@ void SessionImpl::handleMetadataReceivedAlert(const lt::metadata_received_alert 
     if (infoHash.isHybrid())
     {
         const auto altID = TorrentID::fromSHA1Hash(infoHash.v1());
-        if (const auto iter = m_downloadedMetadata.find(altID); iter != m_downloadedMetadata.end())
+        if (const auto iter = m_downloadedMetadata.constFind(altID); iter != m_downloadedMetadata.cend())
         {
             found = true;
             m_downloadedMetadata.erase(iter);
@@ -5965,7 +6093,7 @@ void SessionImpl::handleUrlSeedAlert(const lt::url_seed_alert *alert)
 
     if (alert->error)
     {
-        LogMsg(tr("URL seed DNS lookup failed. Torrent: \"%1\". URL: \"%2\". Error: \"%3\"")
+        LogMsg(tr("URL seed connection failed. Torrent: \"%1\". URL: \"%2\". Error: \"%3\"")
             .arg(torrent->name(), QString::fromUtf8(alert->server_url()), QString::fromStdString(alert->message()))
             , Log::WARNING);
     }
@@ -6132,7 +6260,7 @@ void SessionImpl::handleStorageMovedAlert(const lt::storage_moved_alert *alert)
 {
     Q_ASSERT(!m_moveStorageQueue.isEmpty());
 
-    const MoveStorageJob &currentJob = m_moveStorageQueue.first();
+    const MoveStorageJob &currentJob = m_moveStorageQueue.constFirst();
     Q_ASSERT(currentJob.torrentHandle == alert->handle);
 
     const Path newPath {QString::fromUtf8(alert->storage_path())};
@@ -6155,7 +6283,7 @@ void SessionImpl::handleStorageMovedFailedAlert(const lt::storage_moved_failed_a
 {
     Q_ASSERT(!m_moveStorageQueue.isEmpty());
 
-    const MoveStorageJob &currentJob = m_moveStorageQueue.first();
+    const MoveStorageJob &currentJob = m_moveStorageQueue.constFirst();
     Q_ASSERT(currentJob.torrentHandle == alert->handle);
 
 #ifdef QBT_USES_LIBTORRENT2
@@ -6328,7 +6456,7 @@ void SessionImpl::loadStatistics()
 
 void SessionImpl::updateTrackerEntryStatuses(lt::torrent_handle torrentHandle)
 {
-    invokeAsync([this, torrentHandle = std::move(torrentHandle)]() mutable
+    invokeAsync([this, torrentHandle = std::move(torrentHandle)]
     {
         try
         {
@@ -6338,9 +6466,9 @@ void SessionImpl::updateTrackerEntryStatuses(lt::torrent_handle torrentHandle)
             QHash<std::string, QHash<lt::tcp::endpoint, QMap<int, int>>> updatedTrackers = m_updatedTrackerStatuses.take(torrentHandle);
             updatedTrackerStatusesLocker.unlock();
 
-            invoke([this, torrentHandle, nativeTrackers = std::move(nativeTrackers), updatedTrackers = std::move(updatedTrackers)]
+            invoke([this, infoHash = torrentHandle.info_hash(), nativeTrackers = std::move(nativeTrackers), updatedTrackers = std::move(updatedTrackers)]
             {
-                TorrentImpl *torrent = m_torrents.value(torrentHandle.info_hash());
+                TorrentImpl *torrent = m_torrents.value(infoHash);
                 if (!torrent || torrent->isStopped())
                     return;
 
@@ -6369,8 +6497,8 @@ void SessionImpl::updateTrackerEntryStatuses(lt::torrent_handle torrentHandle)
 
 void SessionImpl::handleRemovedTorrent(const TorrentID &torrentID, const QString &partfileRemoveError)
 {
-    const auto removingTorrentDataIter = m_removingTorrents.find(torrentID);
-    if (removingTorrentDataIter == m_removingTorrents.end())
+    const auto removingTorrentDataIter = m_removingTorrents.constFind(torrentID);
+    if (removingTorrentDataIter == m_removingTorrents.cend())
         return;
 
     if (!partfileRemoveError.isEmpty())

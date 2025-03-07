@@ -36,18 +36,18 @@ window.qBittorrent.ProgressBar ??= (() => {
         };
     };
 
-    let ProgressBars = 0;
+    let progressBars = 0;
     const ProgressBar = new Class({
         initialize: (value, parameters) => {
             const vals = {
-                "id": "progressbar_" + (ProgressBars++),
-                "value": [value, 0].pick(),
-                "width": 0,
-                "height": 0,
-                "darkbg": "var(--color-background-blue)",
-                "darkfg": "var(--color-text-white)",
-                "lightbg": "var(--color-background-default)",
-                "lightfg": "var(--color-text-default)"
+                id: `progressbar_${progressBars++}`,
+                value: [value, 0].pick(),
+                width: 0,
+                height: 0,
+                darkbg: "var(--color-background-blue)",
+                darkfg: "var(--color-text-white)",
+                lightbg: "var(--color-background-default)",
+                lightfg: "var(--color-text-default)"
             };
             if (parameters && (typeOf(parameters) === "object"))
                 Object.append(vals, parameters);
@@ -116,13 +116,13 @@ window.qBittorrent.ProgressBar ??= (() => {
     }
 
     function ProgressBar_setValue(value) {
-        value = parseFloat(value);
-        if (isNaN(value))
+        value = Number(value);
+        if (Number.isNaN(value))
             value = 0;
         value = Math.min(Math.max(value, 0), 100);
         this.vals.value = value;
 
-        const displayedValue = `${value.round(1).toFixed(1)}%`;
+        const displayedValue = `${window.qBittorrent.Misc.toFixedPointString(value, 1)}%`;
         this.vals.dark.textContent = displayedValue;
         this.vals.light.textContent = displayedValue;
 

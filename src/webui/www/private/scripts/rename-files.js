@@ -10,9 +10,9 @@ window.qBittorrent.MultiRename ??= (() => {
     };
 
     const AppliesTo = {
-        "FilenameExtension": "FilenameExtension",
-        "Filename": "Filename",
-        "Extension": "Extension"
+        FilenameExtension: "FilenameExtension",
+        Filename: "Filename",
+        Extension: "Extension"
     };
 
     const RenameFiles = new Class({
@@ -47,7 +47,7 @@ window.qBittorrent.MultiRename ??= (() => {
         onChanged: (rows) => {},
         onInvalidRegex: (err) => {},
         onRenamed: (rows) => {},
-        onRenameError: (err) => {},
+        onRenameError: (response) => {},
 
         _inner_update: function() {
             const findMatches = (regex, str) => {
@@ -130,7 +130,7 @@ window.qBittorrent.MultiRename ??= (() => {
                 regexFlags += "i";
 
             // Setup regex search
-            const regexEscapeExp = new RegExp(/[/\-\\^$*+?.()|[\]{}]/g);
+            const regexEscapeExp = /[/\-\\^$*+?.()|[\]{}]/g;
             const standardSearch = new RegExp(this._inner_search.replace(regexEscapeExp, "\\$&"), regexFlags);
             let regexSearch;
             try {
@@ -159,7 +159,7 @@ window.qBittorrent.MultiRename ??= (() => {
                 // Get file extension and reappend the "." (only when the file has an extension)
                 let fileExtension = window.qBittorrent.Filesystem.fileExtension(row.original);
                 if (fileExtension)
-                    fileExtension = "." + fileExtension;
+                    fileExtension = `.${fileExtension}`;
 
                 const fileNameWithoutExt = row.original.slice(0, row.original.lastIndexOf(fileExtension));
 
@@ -240,21 +240,19 @@ window.qBittorrent.MultiRename ??= (() => {
                 const newPath = parentPath
                     ? parentPath + window.qBittorrent.Filesystem.PathSeparator + newName
                     : newName;
-                const renameRequest = new Request({
-                    url: isFolder ? "api/v2/torrents/renameFolder" : "api/v2/torrents/renameFile",
-                    method: "post",
-                    data: {
-                        hash: this.hash,
-                        oldPath: oldPath,
-                        newPath: newPath
-                    }
-                });
                 try {
-                    await renameRequest.send();
+                    await fetch((isFolder ? "api/v2/torrents/renameFolder" : "api/v2/torrents/renameFile"), {
+                        method: "POST",
+                        body: new URLSearchParams({
+                            hash: this.hash,
+                            oldPath: oldPath,
+                            newPath: newPath
+                        })
+                    });
                     replaced.push(match);
                 }
-                catch (err) {
-                    this.onRenameError(err, match);
+                catch (response) {
+                    this.onRenameError(response, match);
                 }
             }.bind(this);
 

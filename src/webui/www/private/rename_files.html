@@ -21,7 +21,7 @@
             } = window.MUI.Windows.instances["multiRenamePage"];
 
             const bulkRenameFilesContextMenu = new window.qBittorrent.ContextMenu.ContextMenu({
-                targets: "#bulkRenameFilesTableDiv tr",
+                targets: "#bulkRenameFilesTableDiv tbody tr",
                 menu: "multiRenameFilesMenu",
                 actions: {
                     ToggleSelection: (element, ref) => {
@@ -44,7 +44,7 @@
             bulkRenameFilesTable.setup("bulkRenameFilesTableDiv", "bulkRenameFilesTableFixedHeaderDiv", bulkRenameFilesContextMenu);
 
             // Inject checkbox into the first column of the table header
-            const tableHeaders = $$("#bulkRenameFilesTableFixedHeaderDiv .dynamicTableHeader th");
+            const tableHeaders = document.querySelectorAll("#bulkRenameFilesTableFixedHeaderDiv .dynamicTableHeader th");
             if (tableHeaders.length > 0) {
                 const checkboxHeader = document.createElement("input");
                 checkboxHeader.type = "checkbox";
@@ -64,11 +64,11 @@
             new Keyboard({
                 defaultEventType: "keydown",
                 events: {
-                    "Escape": function(event) {
+                    Escape: (event) => {
                         window.qBittorrent.Client.closeWindow(windowEl);
                         event.preventDefault();
                     },
-                    "Esc": function(event) {
+                    Esc: (event) => {
                         window.qBittorrent.Client.closeWindow(windowEl);
                         event.preventDefault();
                     }
@@ -172,7 +172,7 @@
                 // Update renamed column for matched rows
                 for (let i = 0; i < matchedRows.length; ++i) {
                     const row = matchedRows[i];
-                    $("filesTablefileRenamed" + row.rowId).textContent = row.renamed;
+                    $(`filesTablefileRenamed${row.rowId}`).textContent = row.renamed;
                 }
             };
             fileRenamer.onInvalidRegex = (err) => {
@@ -267,8 +267,8 @@
                 }
                 setupTable(selectedRows);
             };
-            fileRenamer.onRenameError = (err, row) => {
-                if (err.xhr.status === 409)
+            fileRenamer.onRenameError = (response, row) => {
+                if (response.status === 409)
                     $("rename_error").textContent = `QBT_TR(Rename failed: file or folder already exists)QBT_TR[CONTEXT=PropertiesWidget] \`${row.renamed}\``;
             };
             $("renameOptions").addEventListener("change", (e) => {
@@ -379,17 +379,24 @@
             };
 
             const setupTable = (selectedRows) => {
-                new Request.JSON({
-                    url: new URI("api/v2/torrents/files?hash=" + data.hash),
-                    noCache: true,
-                    method: "get",
-                    onSuccess: (files) => {
+                const url = new URL("api/v2/torrents/files", window.location);
+                url.search = new URLSearchParams({
+                    hash: data.hash
+                });
+                fetch(url, {
+                        method: "GET",
+                        cache: "no-store"
+                    })
+                    .then(async (response) => {
+                        if (!response.ok)
+                            return;
+
+                        const files = await response.json();
                         if (files.length === 0)
                             bulkRenameFilesTable.clear();
                         else
                             handleTorrentFiles(files, selectedRows);
-                    }
-                }).send();
+                    });
             };
             setupTable(data.selectedRows);
         })();

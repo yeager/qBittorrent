@@ -100,6 +100,7 @@ ol {
     .dynamicTableDiv,
     .mochaContentWrapper,
     .panel,
+    .scrollableMenu,
     #rssDetailsView {
         scrollbar-width: thin;
     }
@@ -107,6 +108,7 @@ ol {
 
 /* Forms */
 
+input[type="search"],
 input[type="text"],
 input[type="number"],
 input[type="password"],
@@ -256,7 +258,7 @@ pre {
 
 hr {
     background-color: var(--color-background-default);
-    border: 0px;
+    border: 0;
     color: var(--color-text-default);
     height: 1px;
     margin-bottom: 6px;
@@ -434,8 +436,8 @@ a.propButton img {
 .sliderarea {
     background: #f2f2f2 url("../images/slider-area.gif") repeat-x;
     border: 1px solid #a3a3a3;
-    border-bottom: 1px solid #ccc;
-    border-left: 1px solid #ccc;
+    border-bottom: 1px solid #cccccc;
+    border-left: 1px solid #cccccc;
     font-size: 1px;
     height: 7px;
     left: 0;
@@ -503,13 +505,13 @@ a.propButton img {
 #torrentsFilterInput {
     background-color: var(--color-background-default);
     background-image: url("../images/edit-find.svg");
-    background-position: left;
+    background-position: 2px;
     background-repeat: no-repeat;
     background-size: 1.5em;
     border: 1px solid var(--color-border-default);
     border-radius: 3px;
-    min-width: 160px;
-    padding: 2px 12px 2px 25px;
+    min-width: 170px;
+    padding: 2px 2px 2px 25px;
 }
 
 #torrentsFilterRegexBox {
@@ -555,7 +557,7 @@ a.propButton img {
 
 #torrentFilesFilterInput {
     background-image: url("../images/edit-find.svg");
-    background-position: left;
+    background-position: 1px;
     background-repeat: no-repeat;
     background-size: 1.5em;
     margin-top: -1px;
@@ -572,7 +574,7 @@ label.tristate {
     display: block;
     float: left;
     height: 13px;
-    margin: 0.15em 8px 5px 0px;
+    margin: 0.15em 8px 5px 0;
     overflow: hidden;
     text-indent: -999em;
     width: 13px;
@@ -784,20 +786,20 @@ td.generalLabel {
 
 .select-watched-folder-editable select {
     border: none;
-    bottom: 0px;
-    left: 0px;
+    bottom: 0;
+    left: 0;
     padding: 0;
     position: absolute;
-    top: 0px;
+    top: 0;
     width: 158px;
 }
 
 .select-watched-folder-editable input {
     border: none;
-    left: 0px;
+    left: 0;
     padding: 0;
     position: absolute;
-    top: 0px;
+    top: 0;
     width: 140px;
 }
 

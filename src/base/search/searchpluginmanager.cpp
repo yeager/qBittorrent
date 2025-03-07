@@ -359,7 +359,7 @@ SearchHandler *SearchPluginManager::startSearch(const QString &pattern, const QS
     // No search pattern entered
     Q_ASSERT(!pattern.isEmpty());
 
-    return new SearchHandler {pattern, category, usedPlugins, this};
+    return new SearchHandler(pattern, category, usedPlugins, this);
 }
 
 QString SearchPluginManager::categoryFullName(const QString &categoryName)
@@ -592,14 +592,14 @@ void SearchPluginManager::parseVersionInfo(const QByteArray &info)
     QHash<QString, PluginVersion> updateInfo;
     int numCorrectData = 0;
 
-    const QList<QByteArrayView> lines = Utils::ByteArray::splitToViews(info, "\n", Qt::SkipEmptyParts);
+    const QList<QByteArrayView> lines = Utils::ByteArray::splitToViews(info, "\n");
     for (QByteArrayView line : lines)
     {
         line = line.trimmed();
         if (line.isEmpty()) continue;
         if (line.startsWith('#')) continue;
 
-        const QList<QByteArrayView> list = Utils::ByteArray::splitToViews(line, ":", Qt::SkipEmptyParts);
+        const QList<QByteArrayView> list = Utils::ByteArray::splitToViews(line, ":");
         if (list.size() != 2) continue;
 
         const auto pluginName = QString::fromUtf8(list.first().trimmed());

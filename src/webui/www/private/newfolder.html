@@ -29,7 +29,6 @@
             });
 
             $("folderName").focus();
-            const path = new URI().getData("path");
             $("submitButton").addEventListener("click", (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -43,22 +42,24 @@
 
                 $("submitButton").disabled = true;
 
-                new Request({
-                    url: "api/v2/rss/addFolder",
-                    method: "post",
-                    data: {
-                        path: path ? (path + "\\" + folderName) : folderName
-                    },
-                    onSuccess: (response) => {
+                const path = new URLSearchParams(window.location.search).get("path");
+                fetch("api/v2/rss/addFolder", {
+                        method: "POST",
+                        body: new URLSearchParams({
+                            path: (((path !== null) && (path.length > 0)) ? `${path}\\${folderName}` : folderName)
+                        })
+                    })
+                    .then(async (response) => {
+                        if (!response.ok) {
+                            if (response.status === 409)
+                                alert(await response.text());
+                            $("submitButton").disabled = false;
+                            return;
+                        }
+
                         window.parent.qBittorrent.Rss.updateRssFeedList();
                         window.parent.qBittorrent.Client.closeFrameWindow(window);
-                    },
-                    onFailure: (response) => {
-                        if (response.status === 409)
-                            alert(response.responseText);
-                        $("submitButton").disabled = false;
-                    }
-                }).send();
+                    });
             });
         });
 

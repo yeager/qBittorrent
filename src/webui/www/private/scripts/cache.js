@@ -62,8 +62,7 @@ window.qBittorrent.Cache ??= (() => {
                     if (!response.ok)
                         return;
 
-                    const responseText = await response.text();
-                    const responseJSON = JSON.parse(responseText);
+                    const responseJSON = await response.json();
                     deepFreeze(responseJSON);
                     this.#m_store = responseJSON;
                 });
@@ -122,7 +121,7 @@ window.qBittorrent.Cache ??= (() => {
             fetch("api/v2/app/setPreferences", {
                     method: "POST",
                     body: new URLSearchParams({
-                        "json": JSON.stringify(obj.data)
+                        json: JSON.stringify(obj.data)
                     })
                 })
                 .then(async (response) => {

@@ -37,12 +37,13 @@ export default [
             "operator-assignment": "error",
             "prefer-arrow-callback": "error",
             "prefer-const": "error",
+            "prefer-template": "error",
             "radix": "error",
             "PreferArrowFunctions/prefer-arrow-functions": "error",
             "Stylistic/no-mixed-operators": [
                 "error",
                 {
-                    "groups": [
+                    groups: [
                         ["&", "|", "^", "~", "<<", ">>", ">>>", "==", "!=", "===", "!==", ">", ">=", "<", "<=", "&&", "||", "in", "instanceof"]
                     ]
                 }
@@ -52,12 +53,13 @@ export default [
                 "error",
                 "double",
                 {
-                    "avoidEscape": true,
-                    "allowTemplateLiterals": true
+                    avoidEscape: true,
+                    allowTemplateLiterals: true
                 }
             ],
+            "Stylistic/quote-props": ["error", "consistent-as-needed"],
             "Stylistic/semi": "error",
-            "Stylistic/spaced-comment": ["error", "always", { "exceptions": ["*"] }]
+            "Stylistic/spaced-comment": ["error", "always", { exceptions: ["*"] }]
         }
     }
 ];

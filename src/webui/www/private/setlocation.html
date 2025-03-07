@@ -27,10 +27,11 @@
                 }
             });
 
-            const path = new URI().getData("path");
+            const searchParams = new URLSearchParams(window.location.search);
+            const path = searchParams.get("path");
 
             // set text field to current value
-            if (path)
+            if (path !== null)
                 $("setLocation").value = decodeURIComponent(path);
 
             $("setLocation").focus();
@@ -45,21 +46,21 @@
                     return;
                 }
 
-                const hashesList = new URI().getData("hashes");
-                new Request({
-                    url: "api/v2/torrents/setLocation",
-                    method: "post",
-                    data: {
-                        hashes: hashesList,
-                        location: location
-                    },
-                    onSuccess: () => {
+                fetch("api/v2/torrents/setLocation", {
+                        method: "POST",
+                        body: new URLSearchParams({
+                            hashes: searchParams.get("hashes"),
+                            location: location
+                        })
+                    })
+                    .then(async (response) => {
+                        if (!response.ok) {
+                            $("error_div").textContent = await response.text();
+                            return;
+                        }
+
                         window.parent.qBittorrent.Client.closeFrameWindow(window);
-                    },
-                    onFailure: (xhr) => {
-                        $("error_div").textContent = xhr.response;
-                    }
-                }).send();
+                    });
             });
         });
     </script>

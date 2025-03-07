@@ -13,7 +13,6 @@
         "use strict";
 
         window.addEventListener("DOMContentLoaded", () => {
-            const paths = new URI().getData("paths").split("|");
             $("cancelBtn").focus();
             $("cancelBtn").addEventListener("click", (e) => {
                 e.preventDefault();
@@ -25,22 +24,25 @@
                 e.stopPropagation();
 
                 let completionCount = 0;
-                paths.forEach((path) => {
-                    new Request({
-                        url: "api/v2/rss/removeItem",
-                        method: "post",
-                        data: {
-                            path: decodeURIComponent(path)
-                        },
-                        onComplete: (response) => {
+                const paths = new URLSearchParams(window.location.search).get("paths").split("|");
+                for (const path of paths) {
+                    fetch("api/v2/rss/removeItem", {
+                            method: "POST",
+                            body: new URLSearchParams({
+                                path: decodeURIComponent(path)
+                            })
+                        })
+                        .then((response) => {
+                            if (!response.ok)
+                                return;
+
                             ++completionCount;
                             if (completionCount === paths.length) {
                                 window.parent.qBittorrent.Rss.updateRssFeedList();
                                 window.parent.qBittorrent.Client.closeFrameWindow(window);
                             }
-                        }
-                    }).send();
-                });
+                        });
+                }
             });
         });
     </script>

@@ -655,6 +655,47 @@ void Preferences::setSearchEnabled(const bool enabled)
     setValue(u"Preferences/Search/SearchEnabled"_s, enabled);
 }
 
+int Preferences::searchHistoryLength() const
+{
+    const int val = value(u"Search/HistoryLength"_s, 50);
+    return std::clamp(val, 0, 99);
+}
+
+void Preferences::setSearchHistoryLength(const int length)
+{
+    const int clampedLength = std::clamp(length, 0, 99);
+    if (clampedLength == searchHistoryLength())
+        return;
+
+    setValue(u"Search/HistoryLength"_s, clampedLength);
+}
+
+bool Preferences::storeOpenedSearchTabs() const
+{
+    return value(u"Search/StoreOpenedSearchTabs"_s, false);
+}
+
+void Preferences::setStoreOpenedSearchTabs(const bool enabled)
+{
+    if (enabled == storeOpenedSearchTabs())
+        return;
+
+    setValue(u"Search/StoreOpenedSearchTabs"_s, enabled);
+}
+
+bool Preferences::storeOpenedSearchTabResults() const
+{
+    return value(u"Search/StoreOpenedSearchTabResults"_s, false);
+}
+
+void Preferences::setStoreOpenedSearchTabResults(const bool enabled)
+{
+    if (enabled == storeOpenedSearchTabResults())
+        return;
+
+    setValue(u"Search/StoreOpenedSearchTabResults"_s, enabled);
+}
+
 bool Preferences::isWebUIEnabled() const
 {
 #ifdef DISABLE_GUI

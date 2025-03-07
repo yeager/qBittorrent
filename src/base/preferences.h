@@ -172,6 +172,14 @@ public:
     bool isSearchEnabled() const;
     void setSearchEnabled(bool enabled);
 
+    // Search UI
+    int searchHistoryLength() const;
+    void setSearchHistoryLength(int length);
+    bool storeOpenedSearchTabs() const;
+    void setStoreOpenedSearchTabs(bool enabled);
+    bool storeOpenedSearchTabResults() const;
+    void setStoreOpenedSearchTabResults(bool enabled);
+
     // HTTP Server
     bool isWebUIEnabled() const;
     void setWebUIEnabled(bool enabled);

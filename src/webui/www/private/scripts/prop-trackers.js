@@ -58,19 +58,23 @@ window.qBittorrent.PropTrackers ??= (() => {
             torrentTrackersTable.clear();
             current_hash = new_hash;
         }
-        const url = new URI("api/v2/torrents/trackers?hash=" + current_hash);
-        new Request.JSON({
-            url: url,
-            method: "get",
-            noCache: true,
-            onComplete: () => {
-                clearTimeout(loadTrackersDataTimer);
-                loadTrackersDataTimer = loadTrackersData.delay(10000);
-            },
-            onSuccess: (trackers) => {
+
+        const url = new URL("api/v2/torrents/trackers", window.location);
+        url.search = new URLSearchParams({
+            hash: current_hash
+        });
+        fetch(url, {
+                method: "GET",
+                cache: "no-store"
+            })
+            .then(async (response) => {
+                if (!response.ok)
+                    return;
+
                 const selectedTrackers = torrentTrackersTable.selectedRowsIds();
                 torrentTrackersTable.clear();
 
+                const trackers = await response.json();
                 if (trackers) {
                     trackers.each((tracker) => {
                         let status;
@@ -113,8 +117,11 @@ window.qBittorrent.PropTrackers ??= (() => {
                     if (selectedTrackers.length > 0)
                         torrentTrackersTable.reselectRows(selectedTrackers);
                 }
-            }
-        }).send();
+            })
+            .finally(() => {
+                clearTimeout(loadTrackersDataTimer);
+                loadTrackersDataTimer = loadTrackersData.delay(10000);
+            });
     };
 
     const updateData = () => {
@@ -131,8 +138,6 @@ window.qBittorrent.PropTrackers ??= (() => {
                 addTrackerFN();
             },
             EditTracker: (element, ref) => {
-                // only allow editing of one row
-                element.firstElementChild.click();
                 editTrackerFN(element);
             },
             RemoveTracker: (element, ref) => {
@@ -155,7 +160,11 @@ window.qBittorrent.PropTrackers ??= (() => {
                 this.hideItem("CopyTrackerUrl");
             }
             else {
-                this.showItem("EditTracker");
+                if (selectedTrackers.length === 1)
+                    this.showItem("EditTracker");
+                else
+                    this.hideItem("EditTracker");
+
                 this.showItem("RemoveTracker");
                 this.showItem("CopyTrackerUrl");
             }
@@ -170,7 +179,7 @@ window.qBittorrent.PropTrackers ??= (() => {
             icon: "images/qbittorrent-tray.svg",
             title: "QBT_TR(Add trackers)QBT_TR[CONTEXT=TrackersAdditionDialog]",
             loadMethod: "iframe",
-            contentURL: "addtrackers.html?hash=" + current_hash,
+            contentURL: `addtrackers.html?hash=${current_hash}`,
             scrollbars: true,
             resizable: false,
             maximizable: false,
@@ -189,13 +198,13 @@ window.qBittorrent.PropTrackers ??= (() => {
         if (current_hash.length === 0)
             return;
 
-        const trackerUrl = encodeURIComponent(element.childNodes[1].textContent);
+        const trackerUrl = encodeURIComponent(torrentTrackersTable.selectedRowsIds()[0]);
         new MochaUI.Window({
             id: "trackersPage",
             icon: "images/qbittorrent-tray.svg",
             title: "QBT_TR(Tracker editing)QBT_TR[CONTEXT=TrackerListWidget]",
             loadMethod: "iframe",
-            contentURL: "edittracker.html?hash=" + current_hash + "&url=" + trackerUrl,
+            contentURL: `edittracker.html?hash=${current_hash}&url=${trackerUrl}`,
             scrollbars: true,
             resizable: false,
             maximizable: false,
@@ -214,18 +223,19 @@ window.qBittorrent.PropTrackers ??= (() => {
         if (current_hash.length === 0)
             return;
 
-        const selectedTrackers = torrentTrackersTable.selectedRowsIds();
-        new Request({
-            url: "api/v2/torrents/removeTrackers",
-            method: "post",
-            data: {
-                hash: current_hash,
-                urls: selectedTrackers.map(encodeURIComponent).join("|")
-            },
-            onSuccess: () => {
+        fetch("api/v2/torrents/removeTrackers", {
+                method: "POST",
+                body: new URLSearchParams({
+                    hash: current_hash,
+                    urls: torrentTrackersTable.selectedRowsIds().map(encodeURIComponent).join("|")
+                })
+            })
+            .then((response) => {
+                if (!response.ok)
+                    return;
+
                 updateData();
-            }
-        }).send();
+            });
     };
 
     const clear = () => {

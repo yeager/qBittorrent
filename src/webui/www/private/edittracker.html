@@ -26,8 +26,9 @@
                 }
             });
 
-            const currentUrl = new URI().getData("url");
-            if (!currentUrl)
+            const searchParams = new URLSearchParams(window.location.search);
+            const currentUrl = searchParams.get("url");
+            if (currentUrl === null)
                 return;
 
             $("trackerUrl").value = currentUrl;
@@ -37,19 +38,20 @@
                 e.preventDefault();
                 e.stopPropagation();
 
-                const hash = new URI().getData("hash");
-                new Request({
-                    url: "api/v2/torrents/editTracker",
-                    method: "post",
-                    data: {
-                        hash: hash,
-                        origUrl: currentUrl,
-                        newUrl: $("trackerUrl").value
-                    },
-                    onComplete: () => {
+                fetch("api/v2/torrents/editTracker", {
+                        method: "POST",
+                        body: new URLSearchParams({
+                            hash: searchParams.get("hash"),
+                            origUrl: currentUrl,
+                            newUrl: $("trackerUrl").value
+                        })
+                    })
+                    .then((response) => {
+                        if (!response.ok)
+                            return;
+
                         window.parent.qBittorrent.Client.closeFrameWindow(window);
-                    }
-                }).send();
+                    });
             });
         });
     </script>

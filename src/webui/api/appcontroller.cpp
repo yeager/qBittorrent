@@ -307,6 +307,9 @@ void AppController::preferencesAction()
     // Add trackers
     data[u"add_trackers_enabled"_s] = session->isAddTrackersEnabled();
     data[u"add_trackers"_s] = session->additionalTrackers();
+    data[u"add_trackers_from_url_enabled"_s] = session->isAddTrackersFromURLEnabled();
+    data[u"add_trackers_url"_s] = session->additionalTrackersURL();
+    data[u"add_trackers_url_list"_s] = session->additionalTrackersFromURL();
 
     // WebUI
     // HTTP Server
@@ -470,6 +473,7 @@ void AppController::preferencesAction()
     data[u"announce_to_all_trackers"_s] = session->announceToAllTrackers();
     data[u"announce_to_all_tiers"_s] = session->announceToAllTiers();
     data[u"announce_ip"_s] = session->announceIP();
+    data[u"announce_port"_s] = session->announcePort();
     data[u"max_concurrent_http_announces"_s] = session->maxConcurrentHTTPAnnounces();
     data[u"stop_tracker_timeout"_s] = session->stopTrackerTimeout();
     // Peer Turnover
@@ -863,6 +867,10 @@ void AppController::setPreferencesAction()
         session->setAddTrackersEnabled(it.value().toBool());
     if (hasKey(u"add_trackers"_s))
         session->setAdditionalTrackers(it.value().toString());
+    if (hasKey(u"add_trackers_from_url_enabled"_s))
+        session->setAddTrackersFromURLEnabled(it.value().toBool());
+    if (hasKey(u"add_trackers_url"_s))
+        session->setAdditionalTrackersURL(it.value().toString());
 
     // WebUI
     // HTTP Server
@@ -1137,6 +1145,8 @@ void AppController::setPreferencesAction()
         const QHostAddress announceAddr {it.value().toString().trimmed()};
         session->setAnnounceIP(announceAddr.isNull() ? QString {} : announceAddr.toString());
     }
+    if (hasKey(u"announce_port"_s))
+        session->setAnnouncePort(it.value().toInt());
     if (hasKey(u"max_concurrent_http_announces"_s))
         session->setMaxConcurrentHTTPAnnounces(it.value().toInt());
     if (hasKey(u"stop_tracker_timeout"_s))
